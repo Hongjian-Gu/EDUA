@@ -18,6 +18,9 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 
+import datetime
+import os
+
 
 parser = argparse.ArgumentParser()
 
@@ -37,11 +40,15 @@ parser.add_argument('--num_neg',
 # Model
 parser.add_argument('--num_memory',
                     type=int,
-                    default=10)
+                    default=20)
 parser.add_argument('--dim',
                     type=int,
                     default=50,
                     help="Dimension for embedding")
+parser.add_argument('-gaus' ,'--gaussian',
+                    type=bool,
+                    default=False,
+                    help="Whether to include gaussian in diversity relation")
 # Optimizer
 parser.add_argument('--lr',
                     type=float,
@@ -175,6 +182,13 @@ def statistic_user_div_score(train_user_list, item_cate_dict):
 if __name__ == '__main__':
     #random.seed(2020)
     #np.random.seed(2020)
+    now = datetime.datetime.now().strftime("%b_%d_%H_%M_%S")
+    log_path = "./logs/" + now + "/log.txt"
+
+    if not os.path.exists("./logs/" + now):
+        os.makedirs("./logs/" + now)
+
+    log = open(log_path, "w+")
 
     f_data = '../music/music_data.pkl'
 
@@ -203,6 +217,8 @@ if __name__ == '__main__':
             user_cate_list[u] = list(cates)
 
     print(user_num, item_num, cate_num)
+    log.write(''+str(user_num) + ' ' + str(item_num) + ' ' + str(cate_num)+'\n')
+    log.close()
     print('Load complete')
 
     user_aspect_arr, cate_aspect_arr = generate_user_aspect(user_cate_list), generate_cate_aspect(train_pair, item_cate_dict)
@@ -210,7 +226,7 @@ if __name__ == '__main__':
     user_div_score = np.array(list(statistic_user_div_score(train_user_list, item_cate_dict).values()))
     max_len_item = sorted([len(lst) for lst in train_user_list])[int(0.995 * user_num)]
     max_len_user = sorted([len(lst) for lst in train_item_list])[int(0.995 * item_num)]
-    model = EDUA(user_num, item_num, cate_num, args.dim, args.margin, args.num_memory, max_len_item, max_len_user)
+    model = EDUA(user_num, item_num, cate_num, args.dim, args.margin, args.num_memory, max_len_item, max_len_user, args.gaussian)
     model.cuda()
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -317,6 +333,9 @@ if __name__ == '__main__':
             total_loss += loss.item()
 
         print( 'loss: %f' % (total_loss / (batch_id+1)))
+        log = open(log_path, "a+")
+        log.write('loss: %f' % (total_loss / (batch_id+1))+'\n')
+        log.close()
 
 
         #--------------------------test
@@ -393,3 +412,7 @@ if __name__ == '__main__':
 
             print('recall/hr_5=%f, ndcg_5=%f, cc_5=%f, ild_5=%f, recall/hr_10=%f, ndcg_10=%f, cc_10=%f, ild_10=%f' % (sum(lst_hr_5) / len(lst_hr_5), sum(lst_ndcg_5) / len(lst_ndcg_5), sum(lst_cc_5) / len(lst_cc_5), sum(lst_ild_5) / len(lst_ild_5), sum(lst_hr_10) / len(lst_hr_10), sum(lst_ndcg_10) / len(lst_ndcg_10), sum(lst_cc_10) / len(lst_cc_10), sum(lst_ild_10) / len(lst_ild_10)))
             statistic(tmp_ratio_5, tmp_ratio_10)
+            log = open(log_path, "a+")
+            log.write('recall/hr_5=%f, ndcg_5=%f, cc_5=%f, ild_5=%f, recall/hr_10=%f, ndcg_10=%f, cc_10=%f, ild_10=%f' % (sum(lst_hr_5) / len(lst_hr_5), sum(lst_ndcg_5) / len(lst_ndcg_5), sum(lst_cc_5) / len(lst_cc_5), sum(lst_ild_5) / len(lst_ild_5), sum(lst_hr_10) / len(lst_hr_10), sum(lst_ndcg_10) / len(lst_ndcg_10), sum(lst_cc_10) / len(lst_cc_10), sum(lst_ild_10) / len(lst_ild_10))+'\n')
+            log.close()
+

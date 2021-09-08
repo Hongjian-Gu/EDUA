@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import numpy as np
 
 class EDUA(torch.nn.Module):
-    def __init__(self, user_num, item_num, cate_num, dim_num, margin, num_mem, max_len_item, max_len_user):
+    def __init__(self, user_num, item_num, cate_num, dim_num, margin, num_mem, max_len_item, max_len_user, gaussian):
         super(EDUA, self).__init__()
         self.num_users = user_num
         self.num_items = item_num
@@ -17,6 +17,7 @@ class EDUA(torch.nn.Module):
         self.max_len_user = max_len_user
         self.dim_num = dim_num
         self.dropout = 0.0
+        self.gaussian = gaussian
 
         def init_weights(m):
             if isinstance(m, nn.Linear):
@@ -59,12 +60,14 @@ class EDUA(torch.nn.Module):
         #------------------------------------------
         self.user_aspect_miu = torch.nn.Parameter(torch.randn(self.num_mem, dim_num), requires_grad=True)
         nn.init.xavier_uniform_(self.user_aspect_miu.data)
-        self.user_aspect_sigma = torch.nn.Parameter(torch.randn(self.num_mem, dim_num), requires_grad=True)
-        nn.init.xavier_uniform_(self.user_aspect_sigma.data)
         self.item_aspect_miu = torch.nn.Parameter(torch.randn(self.num_mem, dim_num), requires_grad=True)
         nn.init.xavier_uniform_(self.item_aspect_miu.data)
-        self.item_aspect_sigma = torch.nn.Parameter(torch.randn(self.num_mem, dim_num), requires_grad=True)
-        nn.init.xavier_uniform_(self.item_aspect_sigma.data)
+        
+        if self.gaussian:
+            self.user_aspect_sigma = torch.nn.Parameter(torch.randn(self.num_mem, dim_num), requires_grad=True)
+            nn.init.xavier_uniform_(self.user_aspect_sigma.data)
+            self.item_aspect_sigma = torch.nn.Parameter(torch.randn(self.num_mem, dim_num), requires_grad=True)
+            nn.init.xavier_uniform_(self.item_aspect_sigma.data)
 
         self.sigmoid = torch.nn.Sigmoid()
         self.tanh = torch.nn.Tanh()
@@ -126,24 +129,32 @@ class EDUA(torch.nn.Module):
 
         # aspect relation ----------
         user_aspect_tmp_miu = (user_aspect.unsqueeze(-1) * self.user_aspect_miu.unsqueeze(0).repeat(batch_size, 1, 1)).mean(dim=1)
-        user_aspect_tmp_sigma = (user_aspect.unsqueeze(-1) * self.user_aspect_sigma.unsqueeze(0).repeat(batch_size, 1, 1)).mean(dim=1)
-        user_aspect_emb = user_aspect_tmp_miu + 0.01*torch.exp(user_aspect_tmp_sigma / 2) * torch.randn(batch_size, self.dim_num).cuda()
-
         item_aspect_tmp_miu = (item_aspect.unsqueeze(-1) * self.item_aspect_miu.unsqueeze(0).repeat(batch_size, 1, 1)).mean(dim=1)
-        item_aspect_tmp_sigma = (item_aspect.unsqueeze(-1) * self.item_aspect_sigma.unsqueeze(0).repeat(batch_size, 1, 1)).mean(dim=1)
-        item_aspect_emb = item_aspect_tmp_miu + 0.01*torch.exp(item_aspect_tmp_sigma / 2) * torch.randn(batch_size, self.dim_num).cuda()
-
         neg_item_aspect_tmp_miu = (neg_item_aspect.unsqueeze(-1) * self.item_aspect_miu.unsqueeze(0).unsqueeze(0).repeat(batch_size, neg_num, 1, 1)).mean(dim=2)
-        neg_item_aspect_tmp_sigma = (neg_item_aspect.unsqueeze(-1) * self.item_aspect_sigma.unsqueeze(0).unsqueeze(0).repeat(batch_size, neg_num, 1, 1)).mean(dim=2)
-        neg_item_aspect_emb = neg_item_aspect_tmp_miu + 0.01*torch.exp(neg_item_aspect_tmp_sigma / 2) * torch.randn(batch_size, neg_num, self.dim_num).cuda()
-
         reverse_item_aspect_tmp_miu = (reverse_item_aspect.unsqueeze(-1) * self.item_aspect_miu.unsqueeze(0).repeat(batch_size, 1, 1)).mean(dim=1)
-        reverse_item_aspect_tmp_sigma = (reverse_item_aspect.unsqueeze(-1) * self.item_aspect_sigma.unsqueeze(0).repeat(batch_size, 1, 1)).mean(dim=1)
-        reverse_item_aspect_emb = reverse_item_aspect_tmp_miu + 0.01*torch.exp(reverse_item_aspect_tmp_sigma / 2) * torch.randn(batch_size, self.dim_num).cuda()
-
         reverse_neg_aspect_tmp_miu = (reverse_neg_aspect.unsqueeze(-1) * self.item_aspect_miu.unsqueeze(0).unsqueeze(0).repeat(batch_size, neg_num, 1, 1)).mean(dim=2)
-        reverse_neg_aspect_tmp_sigma = (reverse_neg_aspect.unsqueeze(-1) * self.item_aspect_sigma.unsqueeze(0).unsqueeze(0).repeat(batch_size, neg_num, 1, 1)).mean(dim=2)
-        reverse_neg_aspect_emb = reverse_neg_aspect_tmp_miu + 0.01*torch.exp(reverse_neg_aspect_tmp_sigma / 2) * torch.randn(batch_size, neg_num, self.dim_num).cuda()
+        
+        if self.gaussian:
+            user_aspect_tmp_sigma = (user_aspect.unsqueeze(-1) * self.user_aspect_sigma.unsqueeze(0).repeat(batch_size, 1, 1)).mean(dim=1)
+            user_aspect_emb = user_aspect_tmp_miu + 0.01*torch.exp(user_aspect_tmp_sigma / 2) * torch.randn(batch_size, self.dim_num).cuda()
+
+            item_aspect_tmp_sigma = (item_aspect.unsqueeze(-1) * self.item_aspect_sigma.unsqueeze(0).repeat(batch_size, 1, 1)).mean(dim=1)
+            item_aspect_emb = item_aspect_tmp_miu + 0.01*torch.exp(item_aspect_tmp_sigma / 2) * torch.randn(batch_size, self.dim_num).cuda()
+
+            neg_item_aspect_tmp_sigma = (neg_item_aspect.unsqueeze(-1) * self.item_aspect_sigma.unsqueeze(0).unsqueeze(0).repeat(batch_size, neg_num, 1, 1)).mean(dim=2)
+            neg_item_aspect_emb = neg_item_aspect_tmp_miu + 0.01*torch.exp(neg_item_aspect_tmp_sigma / 2) * torch.randn(batch_size, neg_num, self.dim_num).cuda()
+
+            reverse_item_aspect_tmp_sigma = (reverse_item_aspect.unsqueeze(-1) * self.item_aspect_sigma.unsqueeze(0).repeat(batch_size, 1, 1)).mean(dim=1)
+            reverse_item_aspect_emb = reverse_item_aspect_tmp_miu + 0.01*torch.exp(reverse_item_aspect_tmp_sigma / 2) * torch.randn(batch_size, self.dim_num).cuda()
+
+            reverse_neg_aspect_tmp_sigma = (reverse_neg_aspect.unsqueeze(-1) * self.item_aspect_sigma.unsqueeze(0).unsqueeze(0).repeat(batch_size, neg_num, 1, 1)).mean(dim=2)
+            reverse_neg_aspect_emb = reverse_neg_aspect_tmp_miu + 0.01*torch.exp(reverse_neg_aspect_tmp_sigma / 2) * torch.randn(batch_size, neg_num, self.dim_num).cuda()
+        else:
+            user_aspect_emb = user_aspect_tmp_miu
+            item_aspect_emb = item_aspect_tmp_miu
+            neg_item_aspect_emb = neg_item_aspect_tmp_miu
+            reverse_item_aspect_emb = reverse_item_aspect_tmp_miu
+            reverse_neg_aspect_emb = reverse_neg_aspect_tmp_miu
 
         # list relation-------------
 
